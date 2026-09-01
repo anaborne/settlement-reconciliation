@@ -1,0 +1,7 @@
+settlement_reconciliation:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: settlement_reconciliation.duckdb
+      threads: 4

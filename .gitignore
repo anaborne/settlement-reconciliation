@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+target/
+dbt_packages/
+logs/
+*.duckdb
+*.duckdb.wal
+
+# Full extract from the private forward-test sqlite. fixtures/ is committed instead.
+data/
+.user.yml

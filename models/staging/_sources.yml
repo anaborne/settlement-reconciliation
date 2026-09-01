@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: forward_test
+    description: Parquet written by scripts/extract.py from the forward-test sqlite.
+    meta:
+      external_location: "{{ env_var('DBT_DATA_DIR', 'data') }}/{name}.parquet"
+    tables:
+      - name: runs
+        description: One row per forward-test run.
+      - name: decisions
+        description: The trade decision ledger, one row per market the rule acted on.
+      - name: settlements
+        description: The exchange settlement feed, one row per settled market.
+      - name: fee_overrides
+        description: Effective-dated fee schedule changes published upstream.
+      - name: unscoreable
+        description: Markets the settlement feed finalised without a binary result.

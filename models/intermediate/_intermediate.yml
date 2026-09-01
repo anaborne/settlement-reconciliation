@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: int_decision_settlement
+    description: >
+      Every decision left joined to its settlement, one row per decision. Settlement columns are
+      null where the feed has produced nothing for the ticker. This model does no classification,
+      so the count of unsettled rows here is the raw size of the reconciliation gap.
+    columns:
+      - name: ticker
+        description: Kalshi market ticker, the grain of this model.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_settlements')
+                field: ticker
+              config:
+                where: is_settled
+      - name: run_id
+        description: Run that produced the decision.
+        data_tests: [not_null]
+      - name: ruleset_version
+        description: Ordinal of the decision ruleset that produced the row.
+        data_tests: [not_null]
+      - name: series_ticker
+        description: Kalshi series the market belongs to.
+        data_tests: [not_null]
+      - name: event_ticker
+        description: Kalshi event the market belongs to.
+        data_tests: [not_null]
+      - name: decided_at
+        description: When the rule committed to the position.
+        data_tests: [not_null]
+      - name: decision_date
+        description: UTC date of the decision, the reporting grain downstream.
+        data_tests: [not_null]
+      - name: occurrence_at
+        description: Scheduled start of the underlying event.
+        data_tests: [not_null]
+      - name: mid_cents
+        description: Midpoint of the yes book at decision time, half-cent resolution.
+      - name: spread_cents
+        description: Ask minus bid on the yes side at decision time.
+      - name: fee_rate
+        description: Exchange fee rate applied to the position.
+      - name: result
+        description: Which side of the market paid out, null when unsettled.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["yes", "no"]
+      - name: closed_at
+        description: When the exchange closed the market, null when unsettled.
+      - name: net_cents
+        description: Position result after fees, in cents, null when unsettled.
+      - name: loaded_at
+        description: When the settlement feed wrote the row, null when unsettled.
+      - name: is_settled
+        description: Whether the settlement feed has produced a row for this ticker.
+        data_tests: [not_null]

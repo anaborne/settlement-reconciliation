@@ -1,0 +1,31 @@
+name: dbt build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DBT_PROFILES_DIR: .
+      # The private sqlite is not available here, so sources read the committed fixture.
+      DBT_DATA_DIR: fixtures
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Install pinned dbt stack
+        run: |
+          uv venv --python 3.12
+          uv pip install -r pyproject.toml
+
+      - name: Install dbt packages
+        run: .venv/bin/dbt deps
+
+      - name: Build models and run tests
+        run: .venv/bin/dbt build
+
+      - name: Generate docs
+        run: .venv/bin/dbt docs generate

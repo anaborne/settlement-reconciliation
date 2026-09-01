@@ -1,0 +1,136 @@
+version: 2
+
+models:
+  - name: stg_runs
+    description: One forward-test run, with the window it covered and the ruleset in force.
+    columns:
+      - name: run_id
+        description: Run identifier, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: started_at
+        description: When the run began collecting.
+        data_tests: [not_null]
+      - name: finished_at
+        description: When the run stopped, null while a run is still open.
+      - name: ruleset_version
+        description: Ordinal of the decision ruleset the run applied.
+        data_tests: [not_null]
+
+  - name: stg_decisions
+    description: The trade decision ledger, one row per market the rule acted on.
+    columns:
+      - name: ticker
+        description: Kalshi market ticker, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: run_id
+        description: Run that produced the decision.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_runs')
+                field: run_id
+      - name: series_ticker
+        description: Kalshi series the market belongs to.
+        data_tests: [not_null]
+      - name: event_ticker
+        description: Kalshi event the market belongs to.
+        data_tests: [not_null]
+      - name: decided_at
+        description: When the rule committed to the position.
+        data_tests: [not_null]
+      - name: occurrence_at
+        description: Scheduled start of the underlying event.
+        data_tests: [not_null]
+      - name: yes_bid_cents
+        description: Best bid on the yes side at decision time.
+      - name: yes_ask_cents
+        description: Best ask on the yes side at decision time.
+      - name: mid_cents
+        description: Midpoint of the yes book at decision time, half-cent resolution.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 99
+                inclusive: true
+      - name: spread_cents
+        description: Ask minus bid on the yes side at decision time.
+      - name: fee_rate
+        description: Exchange fee rate applied to the position.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+                inclusive: true
+      - name: ruleset_version
+        description: Ordinal of the decision ruleset that produced the row.
+        data_tests: [not_null]
+
+  - name: stg_settlements
+    description: The exchange settlement feed, one row per market it has settled.
+    columns:
+      - name: ticker
+        description: Kalshi market ticker, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: result
+        description: Which side of the market paid out.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["yes", "no"]
+      - name: closed_at
+        description: When the exchange closed the market.
+        data_tests: [not_null]
+      - name: net_cents
+        description: Position result after fees, in cents, fractional because fees are.
+        data_tests: [not_null]
+      - name: loaded_at
+        description: When the settlement feed wrote this row into the ledger.
+        data_tests: [not_null]
+
+  - name: stg_fee_overrides
+    description: Effective-dated fee schedule changes published upstream, one row per change.
+    columns:
+      - name: change_id
+        description: Upstream identifier for the schedule change, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: event_ticker
+        description: Kalshi event the change applies to.
+        data_tests: [not_null]
+      - name: series_ticker
+        description: Kalshi series the change applies to.
+        data_tests: [not_null]
+      - name: fee_type
+        description: Fee formula the change selects.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [quadratic, quadratic_with_maker_fees]
+      - name: fee_multiplier
+        description: Coefficient the fee formula is evaluated with.
+        data_tests: [not_null]
+      - name: scheduled_at
+        description: When the change takes effect.
+        data_tests: [not_null]
+      - name: first_seen_at
+        description: When this repository first observed the change.
+        data_tests: [not_null]
+
+  - name: stg_unscoreable
+    description: Markets the settlement feed finalised without a binary result.
+    columns:
+      - name: ticker
+        description: Kalshi market ticker, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: unscoreable_result
+        description: Market type the feed reported instead of a yes or no outcome.
+        data_tests: [not_null]
+      - name: unscoreable_status
+        description: How far the feed got before giving up on scoring the market.
+        data_tests: [not_null]

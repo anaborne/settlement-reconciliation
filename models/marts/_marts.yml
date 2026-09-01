@@ -1,0 +1,97 @@
+version: 2
+
+models:
+  - name: fct_reporting_breaks
+    description: >
+      One row per decision the settlement feed has not settled, carrying the reason code that
+      explains why. Codes are assigned in precedence order: a market the feed finalised as
+      unscoreable takes unscoreable_market, a market whose event occurs inside the settlement
+      window still open at the last load takes settlement_pending, and everything else takes
+      unexplained. The settlement window is the largest close-to-load lag observed across
+      settled rows, so a row is only called unexplained once the feed has demonstrably had
+      longer to settle it than it has ever taken.
+    columns:
+      - name: ticker
+        description: Kalshi market ticker, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: decision_date
+        description: UTC date of the decision the break belongs to.
+        data_tests: [not_null]
+      - name: run_id
+        description: Run that produced the decision.
+        data_tests: [not_null]
+      - name: ruleset_version
+        description: Ordinal of the decision ruleset that produced the row.
+        data_tests: [not_null]
+      - name: series_ticker
+        description: Kalshi series the market belongs to, the first cut a triage pass takes.
+        data_tests: [not_null]
+      - name: event_ticker
+        description: Kalshi event the market belongs to.
+        data_tests: [not_null]
+      - name: decided_at
+        description: When the rule committed to the position.
+        data_tests: [not_null]
+      - name: occurrence_at
+        description: Scheduled start of the underlying event.
+        data_tests: [not_null]
+      - name: seconds_into_settlement_window
+        description: >
+          Seconds between the start of the still-open settlement window and the event, negative
+          for an event old enough that the feed should already have settled it.
+        data_tests: [not_null]
+      - name: reason_code
+        description: Why the decision has no settlement.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [settlement_pending, unscoreable_market, unexplained]
+      - name: severity
+        description: How hard the break should be pushed, driving which codes fail a build.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [info, low, high]
+
+  - name: fct_daily_reconciliation
+    description: >
+      One row per decision date, the morning read. Decisions taken, settlements matched against
+      them, the match rate, the break population split by reason code, and the net settled
+      result. Breaks are counted on the date of the decision they belong to, not the date the
+      settlement feed ran.
+    columns:
+      - name: decision_date
+        description: UTC date the decisions were taken, the grain of this model.
+        data_tests: [unique, not_null]
+      - name: decisions_in
+        description: Decisions taken that date.
+        data_tests: [not_null]
+      - name: settlements_matched
+        description: Those decisions the settlement feed has settled.
+        data_tests: [not_null]
+      - name: match_rate
+        description: Settled over taken, the figure the daily floor test is applied to.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+                inclusive: true
+      - name: breaks_total
+        description: Decisions that date with no settlement, whatever the reason.
+        data_tests: [not_null]
+      - name: breaks_settlement_pending
+        description: Breaks whose event falls inside the still-open settlement window.
+        data_tests: [not_null]
+      - name: breaks_unscoreable_market
+        description: Breaks the exchange finalised without a binary result.
+        data_tests: [not_null]
+      - name: breaks_unexplained
+        description: Breaks the extract accounts for in no other way.
+        data_tests: [not_null]
+      - name: net_cents_settled
+        description: Result after fees across the settled decisions of that date, in cents.
+        data_tests: [not_null]

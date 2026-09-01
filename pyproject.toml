@@ -1,0 +1,12 @@
+[project]
+name = "settlement-reconciliation"
+version = "0.1.0"
+description = "dbt models reconciling a trade decision ledger against an exchange settlement feed"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dbt-core==1.12.3",
+    "dbt-duckdb==1.11.0",
+]
+
+[tool.uv]
+package = false
