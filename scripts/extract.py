@@ -17,7 +17,9 @@ from pathlib import Path
 
 import duckdb
 
-DEFAULT_SOURCE = Path.home() / "Dev" / "kalshi-bot" / "evidence" / "data" / "forward_test.sqlite"
+# The source lives outside this repository and is not distributed with it. Point
+# FORWARD_TEST_SQLITE or --source at it.
+DEFAULT_SOURCE = Path("forward_test.sqlite")
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data"
 
 RULE_VERSION = re.compile(r"^[a-z0-9-]+/(\d+)$")

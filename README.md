@@ -89,6 +89,10 @@ Nothing in the extract accounts for them.
 - A load outage is not the discriminator either. Ordering that run's 18 decisions by event
   time interleaves settled and unsettled rows rather than splitting them at a boundary.
 
+The first two bullets read `resolutions` and `watchlist`. No model here uses either table and
+`scripts/extract.py` does not export them, so those two are checkable only against the private
+sqlite. The series and load-outage bullets are checkable from `fixtures/`.
+
 One correlation does hold, and it is confounded. All 11 fall in the first 21 decisions, taken
 between 2026-08-24 02:38 and 13:00 UTC under rulesets 1 through 3. The other 260 decisions,
 taken under ruleset 5, carry 0 unexplained rows. Ruleset and collection time move together
@@ -313,14 +317,24 @@ version. This is a simulated upstream change. It is not observed drift.
 
 ## Reproduce it
 
-The sqlite source is private and is not distributed here. `scripts/extract.py` exits 1 with the
-path it looked for when it is absent.
+`fixtures/` carries 44 KB of parquet and runs the whole project without the private source.
+This is the path CI runs and it reproduces the reconciliation numbers in this README exactly,
+including all six daily match rates and the 11, 6 and 1 reason-code counts. `fee_overrides` is
+reduced to 50 rows in the fixture, so the fee-schedule figures come from the full extract only.
 
 ```
 uv venv --python 3.12
 uv pip install -r pyproject.toml
-.venv/bin/python scripts/extract.py
 DBT_PROFILES_DIR=. .venv/bin/dbt deps
+DBT_PROFILES_DIR=. DBT_DATA_DIR=fixtures .venv/bin/dbt build
+```
+
+The sqlite source is private and is not distributed here. With it in place, `scripts/extract.py`
+writes the full extract to `data/`, the directory the sources read when `DBT_DATA_DIR` is unset.
+Without it the script exits 1 with the path it looked for.
+
+```
+FORWARD_TEST_SQLITE=/path/to/forward_test.sqlite .venv/bin/python scripts/extract.py
 DBT_PROFILES_DIR=. .venv/bin/dbt build
 ```
 
@@ -386,7 +400,7 @@ distribution and the match-rate floor. The fixture reproduces 11 unexplained, 6
   cannot rule that out.
 - `fee_overrides` is staged, tested, and snapshotted. No model joins a realized fee back to
   the schedule that produced it, because `fee_cents` is not exported.
-- The unexplained test is baselined, not zero-tolerance. See Tests below for what that buys
+- The unexplained test is baselined, not zero-tolerance. See Tests above for what that buys
   and what it costs.
 - The fee snapshot is exercised against a simulated upstream change. `fee_multiplier` has one
   distinct value across all 1659 rows, so the check strategy has never run against real
