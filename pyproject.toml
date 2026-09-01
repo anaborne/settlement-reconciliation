@@ -8,5 +8,11 @@ dependencies = [
     "dbt-duckdb==1.11.0",
 ]
 
+[dependency-groups]
+lint = [
+    "sqlfluff==4.3.0",
+    "sqlfluff-templater-dbt==4.3.0",
+]
+
 [tool.uv]
 package = false

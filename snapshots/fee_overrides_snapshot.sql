@@ -8,6 +8,6 @@
     )
 }}
 
-select * from {{ ref('stg_fee_overrides') }}
+    select * from {{ ref('stg_fee_overrides') }}
 
 {% endsnapshot %}

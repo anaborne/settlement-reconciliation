@@ -28,12 +28,13 @@ classified as (
         date_diff(
             'second',
             settlement_load.watermark_at
-                - to_seconds(cast(settlement_load.max_observed_lag_seconds as bigint)),
+            - to_seconds(cast(settlement_load.max_observed_lag_seconds as bigint)),
             joined.occurrence_at
         ) as seconds_into_settlement_window,
         case
             when unscoreable.ticker is not null then 'unscoreable_market'
-            when joined.occurrence_at >= settlement_load.watermark_at
+            when
+                joined.occurrence_at >= settlement_load.watermark_at
                 - to_seconds(cast(settlement_load.max_observed_lag_seconds as bigint))
                 then 'settlement_pending'
             else 'unexplained'

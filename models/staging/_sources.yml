@@ -12,6 +12,10 @@ sources:
         description: The trade decision ledger, one row per market the rule acted on.
       - name: settlements
         description: The exchange settlement feed, one row per settled market.
+        loaded_at_field: "epoch_ms(joined_at_ms)"
+        freshness:
+          warn_after: {count: 12, period: hour}
+          error_after: {count: 48, period: hour}
       - name: fee_overrides
         description: Effective-dated fee schedule changes published upstream.
       - name: unscoreable

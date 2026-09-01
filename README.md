@@ -9,6 +9,10 @@ The input is a forward test of a Kalshi trading rule run between 2026-08-24 and 
 the 281 decisions settle, a match rate of 93.59%. The 18 that do not are the subject of the
 reconciliation.
 
+Model and column documentation with the lineage graph:
+[anaborne.github.io/settlement-reconciliation](https://anaborne.github.io/settlement-reconciliation/),
+published from `dbt docs generate` on every push to `main`.
+
 ## What it does
 
 1. `scripts/extract.py` reads the forward-test sqlite and writes five parquet files into
@@ -25,11 +29,13 @@ reconciliation.
    settlements matched, match rate, break count split by reason code, net settled result.
 6. A snapshot versions the upstream fee schedule, so a repriced or rescheduled fee change opens
    a new version instead of overwriting the old one.
-7. 78 data tests run on `dbt build`, 74 generic and 4 singular, covering grain, join keys,
+7. Both fact tables carry an enforced dbt contract, so a column that changes name, type, or
+   position fails the build instead of shipping.
+8. 81 data tests run on `dbt build`, 76 generic and 5 singular, covering grain, join keys,
    referential integrity between matched decisions and settlements, the enumerated values of
    `result`, `fee_type`, `reason_code`, and `severity`, the ranges of `fee_rate`, `mid_cents`,
-   and `match_rate`, the size of the unexplained population, the daily match-rate floor, and
-   both directions of the reconciliation.
+   and `match_rate`, the size of the unexplained population, the daily match-rate floor,
+   agreement between the ledger and the run log, and both directions of the reconciliation.
 
 ## Methodology
 
@@ -127,14 +133,18 @@ fractional for the same reason. Every other cents column is an integer.
 carrying decisions taken, settlements matched, match rate, the break population split by reason
 code, and the net settled result in cents.
 
-| Decision date | Decisions | Matched | Match rate | Pending | Unscoreable | Unexplained | Net cents |
-|---|---|---|---|---|---|---|---|
-| 2026-08-24 | 40 | 29 | 0.7250 | 0 | 0 | 11 | -326.44 |
-| 2026-08-25 | 42 | 42 | 1.0000 | 0 | 0 | 0 | 105.78 |
-| 2026-08-26 | 44 | 44 | 1.0000 | 0 | 0 | 0 | 110.96 |
-| 2026-08-27 | 48 | 48 | 1.0000 | 0 | 0 | 0 | -72.68 |
-| 2026-08-28 | 44 | 44 | 1.0000 | 0 | 0 | 0 | -258.95 |
-| 2026-08-29 | 63 | 56 | 0.8889 | 6 | 1 | 0 | 33.54 |
+| Decision date | Decisions | Matched | Match rate | Runs | Rulesets | Pending | Unscoreable | Unexplained | Net cents |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-08-24 | 40 | 29 | 0.7250 | 4 | 1, 2, 3, 5 | 0 | 0 | 11 | -326.44 |
+| 2026-08-25 | 42 | 42 | 1.0000 | 1 | 5 | 0 | 0 | 0 | 105.78 |
+| 2026-08-26 | 44 | 44 | 1.0000 | 2 | 5 | 0 | 0 | 0 | 110.96 |
+| 2026-08-27 | 48 | 48 | 1.0000 | 1 | 5 | 0 | 0 | 0 | -72.68 |
+| 2026-08-28 | 44 | 44 | 1.0000 | 1 | 5 | 0 | 0 | 0 | -258.95 |
+| 2026-08-29 | 63 | 56 | 0.8889 | 1 | 5 | 6 | 1 | 0 | 33.54 |
+
+The run and ruleset columns put the anomalous day next to what made it unusual. 2026-08-24 is
+the only date with more than one ruleset in force, at four runs and four rulesets, and it is the
+only date carrying unexplained breaks. The other five dates ran one ruleset and cleared.
 
 Break counts key on the date of the decision, not the date the settlement feed ran, so a break
 stays on the day the exposure was taken.
@@ -145,8 +155,8 @@ apart silently.
 
 ### Tests
 
-74 generic tests cover grain, join keys, referential integrity, enumerated values, and ranges.
-They are declared in the `schema.yml` beside each model. Four singular tests carry the
+76 generic tests cover grain, join keys, referential integrity, enumerated values, and ranges.
+They are declared in the `schema.yml` beside each model. Five singular tests carry the
 reconciliation logic.
 
 `assert_no_unexplained_breaks` selects every row with `reason_code = 'unexplained'`. It warns
@@ -180,6 +190,44 @@ was missing rows.
 with one, or a break row with no decision behind it. The `accepted_values` test on `reason_code`
 only sees rows that reached the fact table, so a classification branch that filters a row out
 instead of labelling it passes every generic test.
+
+`assert_decisions_inside_run_window` joins each decision to the run it claims and fails when
+`decided_at` falls outside that run's `started_at` to `finished_at` window. The ledger and the
+run log are written by separate paths, so a decision attributed to the wrong run would move
+counts between days while every count still summed correctly. It returns 0 rows across all 281
+decisions. Run 11 has a null `finished_at`, an open run, and the test treats an open run as
+having no upper bound rather than failing its 89 decisions.
+
+### Output contracts
+
+`fct_reporting_breaks` and `fct_daily_reconciliation` both set `contract: {enforced: true}` with
+a declared `data_type` on every column. dbt compares the model's actual output against that
+declaration before writing the table, so a renamed column, a dropped column, or a widened type
+fails the build.
+
+The check is real rather than decorative. Changing the declared type of
+`seconds_into_settlement_window` from `bigint` to `varchar` produces:
+
+```
+This model has an enforced contract that failed.
+| column_name                    | definition_type | contract_type | mismatch_reason    |
+| seconds_into_settlement_window | BIGINT          | VARCHAR       | data type mismatch |
+```
+
+The daily fact casts its aggregates to `integer` at the select rather than letting DuckDB return
+`hugeint` for a `sum`, so the declared types stay narrow enough to mean something.
+
+### Source freshness
+
+`stg_settlements` declares `loaded_at_field: epoch_ms(joined_at_ms)` with `warn_after` 12 hours
+and `error_after` 48 hours, so `dbt source freshness` reports how far behind the settlement feed
+has fallen.
+
+It is not in the CI gate, and it reports `ERROR STALE` when run against this extract. The newest
+settlement load is 2026-08-29 20:53:54 UTC and the extract is frozen, so the gap grows by a day
+every day and no threshold can pass. The thresholds are what a live feed would run under. A
+control that can only ever be red is not a gate, so it is declared and run on demand rather than
+enforced.
 
 ### Fee schedule snapshot
 
@@ -234,19 +282,35 @@ DBT_PROFILES_DIR=. .venv/bin/dbt deps
 DBT_PROFILES_DIR=. .venv/bin/dbt build
 ```
 
-`dbt build` writes `settlement_reconciliation.duckdb` and runs 78 data tests. DuckDB reads the
+Linting needs the extra group, and the dbt templater compiles the project to lint it:
+
+```
+uv pip install -r pyproject.toml --group lint
+DBT_PROFILES_DIR=. .venv/bin/sqlfluff lint models tests snapshots
+```
+
+`dbt build` writes `settlement_reconciliation.duckdb` and runs 81 data tests. DuckDB reads the
 parquet in `data/` through sources, so there is no warehouse account and no scheduler.
 `DBT_DATA_DIR` overrides the directory the sources read from.
 
-`dbt docs generate` writes the model graph and catalog to `target/`.
+`dbt docs generate` writes the model graph and catalog to `target/`. The `--static` flag emits
+a single self-contained `target/static_index.html`, which is what CI publishes.
 
 Pinned in `pyproject.toml`: `dbt-core==1.12.3`, `dbt-duckdb==1.11.0`, on Python 3.12.
 `dbt_utils` 1.4.1 supplies `accepted_range`.
 
 ### Continuous integration
 
-`.github/workflows/build.yml` runs `dbt deps`, `dbt build`, and `dbt docs generate` on every
-push and pull request, with `DBT_DATA_DIR=fixtures`.
+`.github/workflows/build.yml` runs three jobs on every push and pull request, with
+`DBT_DATA_DIR=fixtures`.
+
+`lint` runs `sqlfluff lint` over `models`, `tests`, and `snapshots` with the dbt templater, so
+the linter sees compiled SQL rather than Jinja. Config is in `.sqlfluff`: DuckDB dialect,
+lowercase keywords, 100-column lines.
+
+`build` runs `dbt deps`, `dbt build`, and `dbt docs generate --static`.
+
+`publish-docs` deploys that static file to GitHub Pages, on `main` only.
 
 CI runs against the committed fixture, not the full extract. The private sqlite is not available
 on a runner, so `fixtures/` carries 44 KB of parquet built by `scripts/build_fixture.py`.
@@ -277,7 +341,9 @@ distribution and the match-rate floor. The fixture reproduces 11 unexplained, 6
 - The fee snapshot is exercised against a simulated upstream change. `fee_multiplier` has one
   distinct value across all 1659 rows, so the check strategy has never run against real
   variation in the column it checks.
-- Reporting is not scheduled. The models run on demand.
+- Source freshness is declared and cannot pass, because the extract is frozen. See Source
+  freshness above.
+- Reporting is not scheduled. The models run on demand. Nothing here is a live pipeline.
 
 ## License
 
