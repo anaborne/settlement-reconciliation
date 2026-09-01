@@ -31,7 +31,7 @@ published from `dbt docs generate` on every push to `main`.
    a new version instead of overwriting the old one.
 7. Both fact tables carry an enforced dbt contract, so a column that changes name, type, or
    position fails the build instead of shipping.
-8. 81 data tests run on `dbt build`, 76 generic and 5 singular, covering grain, join keys,
+8. 82 data tests run on `dbt build`, 77 generic and 5 singular, covering grain, join keys,
    referential integrity between matched decisions and settlements, the enumerated values of
    `result`, `fee_type`, `reason_code`, and `severity`, the ranges of `fee_rate`, `mid_cents`,
    and `match_rate`, the size of the unexplained population, the daily match-rate floor,
@@ -155,7 +155,7 @@ apart silently.
 
 ### Tests
 
-76 generic tests cover grain, join keys, referential integrity, enumerated values, and ranges.
+77 generic tests cover grain, join keys, referential integrity, enumerated values, and ranges.
 They are declared in the `schema.yml` beside each model. Five singular tests carry the
 reconciliation logic.
 
@@ -197,6 +197,48 @@ run log are written by separate paths, so a decision attributed to the wrong run
 counts between days while every count still summed correctly. It returns 0 rows across all 281
 decisions. Run 11 has a null `finished_at`, an open run, and the test treats an open run as
 having no upper bound rather than failing its 89 decisions.
+
+### Do the tests work
+
+A test that returns zero rows because its SQL is wrong is indistinguishable from a test that
+returns zero rows because the data is clean. Both report green. `scripts/verify_controls.py`
+tells them apart: for each control it copies the fixture, injects one violation of that control,
+runs the models, then runs only that control and asserts it fails.
+
+15 of 15 injected faults are caught by the control that names them. It runs as its own CI job on
+every push, takes about a minute, and exits non-zero if any control sleeps through its fault.
+
+| Control | Injected fault |
+|---|---|
+| `unique_stg_decisions_ticker` | the same ticker decided twice |
+| `unique_stg_settlements_ticker` | the settlement feed emits a ticker twice |
+| `not_null_stg_decisions_occurrence_at` | a decision with no event time |
+| `accepted_values` on `result` | an outcome class the models do not know |
+| `accepted_values` on `fee_type` | an unpriceable fee formula published upstream |
+| `accepted_range` on `mid_cents` | a quote outside the 1 to 99 contract bounds |
+| `accepted_range` on `fee_rate` | a fee rate expressed as a percentage rather than a fraction |
+| `relationships` on `run_id` | a decision attributed to a run the log has never heard of |
+| `equal_rowcount` on the join | a duplicated settlement fanning the join out |
+| `assert_no_settlement_without_decision` | the feed settles a market the ledger never traded |
+| `assert_decisions_inside_run_window` | a decision timestamped outside the run it claims |
+| `assert_no_unexplained_breaks` | a twelfth unexplained break, one past the backlog |
+| `assert_daily_match_rate_above_floor` | a day where the feed settles almost nothing |
+| `assert_unsettled_decisions_are_classified` | a branch that drops a row instead of labelling it |
+| `fct_reporting_breaks` contract | a mart column whose type drifts from its declaration |
+
+Each mutation declares the row delta it expects to produce, and a mutation that changes a
+different number of rows than declared is reported as a bad fault rather than run. That check
+exists because the first version of two mutations was wrong: `order by ... limit` after an
+unparenthesized `union all` binds to the whole union in DuckDB, so instead of appending one row
+they truncated the table to one row. One of the two then passed for the wrong reason.
+
+One control is inert and the harness proves it rather than claiming it.
+`relationships_int_decision_settlement_ticker__ticker__ref_stg_settlements_` selects rows
+`where is_settled`, and `is_settled` is defined as "the settlement join matched", so every row
+it examines has a parent by construction. Deleting a settlement a decision points at does not
+make it fail, because that decision leaves the test's population. The test is kept because it
+states the intent of the join, and `dbt_utils.equal_rowcount` against `stg_decisions` is the
+falsifiable guard that actually protects it.
 
 ### Output contracts
 
@@ -289,7 +331,13 @@ uv pip install -r pyproject.toml --group lint
 DBT_PROFILES_DIR=. .venv/bin/sqlfluff lint models tests snapshots
 ```
 
-`dbt build` writes `settlement_reconciliation.duckdb` and runs 81 data tests. DuckDB reads the
+Checking that the tests themselves work takes about a minute and needs the fixture:
+
+```
+.venv/bin/python scripts/verify_controls.py
+```
+
+`dbt build` writes `settlement_reconciliation.duckdb` and runs 82 data tests. DuckDB reads the
 parquet in `data/` through sources, so there is no warehouse account and no scheduler.
 `DBT_DATA_DIR` overrides the directory the sources read from.
 
@@ -309,6 +357,8 @@ the linter sees compiled SQL rather than Jinja. Config is in `.sqlfluff`: DuckDB
 lowercase keywords, 100-column lines.
 
 `build` runs `dbt deps`, `dbt build`, and `dbt docs generate --static`.
+
+`verify-controls` runs `scripts/verify_controls.py`, the mutation harness described above.
 
 `publish-docs` deploys that static file to GitHub Pages, on `main` only.
 

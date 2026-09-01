@@ -8,4 +8,7 @@ logs/
 
 # Full extract from the private forward-test sqlite. fixtures/ is committed instead.
 data/
+
+# Local working notes, not part of the deliverable.
+CLAUDE.md
 .user.yml

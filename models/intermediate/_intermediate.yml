@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: int_decision_settlement
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          arguments:
+            compare_model: ref('stg_decisions')
     description: >
       Every decision left joined to its settlement, one row per decision. Settlement columns are
       null where the feed has produced nothing for the ticker. This model does no classification,

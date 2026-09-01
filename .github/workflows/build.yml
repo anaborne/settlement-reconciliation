@@ -64,6 +64,23 @@ jobs:
           path: site
           name: docs-page
 
+  verify-controls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Install pinned dbt stack
+        run: |
+          uv venv --python 3.12
+          uv pip install -r pyproject.toml
+
+      - name: Install dbt packages
+        run: .venv/bin/dbt deps
+
+      - name: Inject a fault per control and check the control catches it
+        run: .venv/bin/python scripts/verify_controls.py
+
   publish-docs:
     needs: build
     if: github.ref == 'refs/heads/main'
