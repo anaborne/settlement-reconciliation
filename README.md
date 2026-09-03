@@ -5,9 +5,9 @@ explain it, classify every decision the feed has not settled, and fail the build
 unexplained population grows past the size recorded here.
 
 The input is a forward test of a Kalshi trading rule run between 2026-08-24 and 2026-08-29:
-281 decisions across 12 collection runs, against a settlement feed carrying 263 rows. 263 of
-the 281 decisions settle, a match rate of 93.59%. The 18 that do not are the subject of the
-reconciliation.
+281 decisions from 5 of the 12 collection runs in the run log, against a settlement feed
+carrying 263 rows. 263 of the 281 decisions settle, a match rate of 93.59%. The 18 that do not
+are the subject of the reconciliation.
 
 Model and column documentation with the lineage graph:
 [anaborne.github.io/settlement-reconciliation](https://anaborne.github.io/settlement-reconciliation/),
@@ -84,8 +84,10 @@ Nothing in the extract accounts for them.
   across its 2294 rows. It cannot explain a decision that was taken.
 - `watchlist` covers 6 of the 18 unsettled tickers, all with status `decided`, which repeats
   what `decisions` already records.
-- Series is not the discriminator. Within the run that produced 8 of the 11, unsettled and
-  settled rows share the series `KXATPCHALLENGERMATCH`, `KXITFWMATCH`, and `KXCS2GAME`.
+- Series is not the discriminator. Every series carrying an unexplained row settles elsewhere in
+  the extract: `KXITFMATCH` 33 of 37, `KXT20MATCH` 8 of 12, `KXATPCHALLENGERMATCH` 16 of 18,
+  `KXCS2GAME` 16 of 17, `KXITFWMATCH` 17 of 18. Within the run that produced 8 of the 11,
+  `KXATPCHALLENGERMATCH` carries both settled and unsettled rows, 6 and 2.
 - A load outage is not the discriminator either. Ordering that run's 18 decisions by event
   time interleaves settled and unsettled rows rather than splitting them at a boundary.
 
@@ -125,7 +127,7 @@ One column is rewritten rather than dropped. The source `rule_version` is
 so it cannot be checked against anything outside the private repository. The extract keeps the
 ordinal and discards the name, giving `ruleset-1` through `ruleset-5`. The ordinal is checkable
 against this repository's own data: `stg_runs` shows 5 rulesets across 12 runs, and `ruleset-4`
-appears in `stg_runs` with 0 decisions.
+appears in `stg_runs` with 0 decisions, as do six other runs.
 
 `mid_cents` and `net_cents` are stored as doubles rather than integers. `mid_cents` is the
 midpoint of two integer quotes and lands on half cents. `net_cents` is post-fee and is
@@ -139,12 +141,12 @@ code, and the net settled result in cents.
 
 | Decision date | Decisions | Matched | Match rate | Runs | Rulesets | Pending | Unscoreable | Unexplained | Net cents |
 |---|---|---|---|---|---|---|---|---|---|
-| 2026-08-24 | 40 | 29 | 0.7250 | 4 | 1, 2, 3, 5 | 0 | 0 | 11 | -326.44 |
-| 2026-08-25 | 42 | 42 | 1.0000 | 1 | 5 | 0 | 0 | 0 | 105.78 |
-| 2026-08-26 | 44 | 44 | 1.0000 | 2 | 5 | 0 | 0 | 0 | 110.96 |
-| 2026-08-27 | 48 | 48 | 1.0000 | 1 | 5 | 0 | 0 | 0 | -72.68 |
-| 2026-08-28 | 44 | 44 | 1.0000 | 1 | 5 | 0 | 0 | 0 | -258.95 |
-| 2026-08-29 | 63 | 56 | 0.8889 | 1 | 5 | 6 | 1 | 0 | 33.54 |
+| 2026-08-24 | 40 | 29 | 0.7250 | 4 | ruleset-1, ruleset-2, ruleset-3, ruleset-5 | 0 | 0 | 11 | -326.44 |
+| 2026-08-25 | 42 | 42 | 1.0000 | 1 | ruleset-5 | 0 | 0 | 0 | 105.78 |
+| 2026-08-26 | 44 | 44 | 1.0000 | 2 | ruleset-5 | 0 | 0 | 0 | 110.96 |
+| 2026-08-27 | 48 | 48 | 1.0000 | 1 | ruleset-5 | 0 | 0 | 0 | -72.68 |
+| 2026-08-28 | 44 | 44 | 1.0000 | 1 | ruleset-5 | 0 | 0 | 0 | -258.95 |
+| 2026-08-29 | 63 | 56 | 0.8889 | 1 | ruleset-5 | 6 | 1 | 0 | 33.54 |
 
 The run and ruleset columns put the anomalous day next to what made it unusual. 2026-08-24 is
 the only date with more than one ruleset in force, at four runs and four rulesets, and it is the
@@ -160,8 +162,8 @@ apart silently.
 ### Tests
 
 77 generic tests cover grain, join keys, referential integrity, enumerated values, and ranges.
-They are declared in the `schema.yml` beside each model. Five singular tests carry the
-reconciliation logic.
+They are declared in the `_staging.yml`, `_intermediate.yml`, and `_marts.yml` property files
+beside each model. Five singular tests carry the reconciliation logic.
 
 `assert_no_unexplained_breaks` selects every row with `reason_code = 'unexplained'`. It warns
 above 0 and errors above `unexplained_break_baseline`, a var set to 11, which is the size of
@@ -210,7 +212,8 @@ tells them apart: for each control it copies the fixture, injects one violation 
 runs the models, then runs only that control and asserts it fails.
 
 15 of 15 injected faults are caught by the control that names them. It runs as its own CI job on
-every push, takes about a minute, and exits non-zero if any control sleeps through its fault.
+every push, takes three to six minutes depending on the machine, and exits non-zero if any
+control sleeps through its fault.
 
 | Control | Injected fault |
 |---|---|
@@ -236,13 +239,20 @@ exists because the first version of two mutations was wrong: `order by ... limit
 unparenthesized `union all` binds to the whole union in DuckDB, so instead of appending one row
 they truncated the table to one row. One of the two then passed for the wrong reason.
 
-One control is inert and the harness proves it rather than claiming it.
+A sixteenth control is inert, and the harness proves it rather than claiming it.
 `relationships_int_decision_settlement_ticker__ticker__ref_stg_settlements_` selects rows
 `where is_settled`, and `is_settled` is defined as "the settlement join matched", so every row
 it examines has a parent by construction. Deleting a settlement a decision points at does not
 make it fail, because that decision leaves the test's population. The test is kept because it
 states the intent of the join, and `dbt_utils.equal_rowcount` against `stg_decisions` is the
 falsifiable guard that actually protects it.
+
+Some generic tests outside the harness are also true by construction. The `accepted_range` on
+`match_rate` compares a subset count to `count(*)` over the same group, so the ratio cannot
+leave 0 to 1. The `unique` on `decision_date` is guaranteed by the `group by` that builds the
+daily fact. The `not_null` on `is_settled` reads a `ticker is not null` expression, which never
+returns null. All three are kept as contract documentation and none of them can catch a
+regression.
 
 ### Output contracts
 
@@ -265,9 +275,9 @@ The daily fact casts its aggregates to `integer` at the select rather than letti
 
 ### Source freshness
 
-`stg_settlements` declares `loaded_at_field: epoch_ms(joined_at_ms)` with `warn_after` 12 hours
-and `error_after` 48 hours, so `dbt source freshness` reports how far behind the settlement feed
-has fallen.
+The `forward_test.settlements` source declares `loaded_at_field: epoch_ms(joined_at_ms)` with
+`warn_after` 12 hours and `error_after` 48 hours, so `dbt source freshness` reports how far
+behind the settlement feed has fallen.
 
 It is not in the CI gate, and it reports `ERROR STALE` when run against this extract. The newest
 settlement load is 2026-08-29 20:53:54 UTC and the extract is frozen, so the gap grows by a day
@@ -317,7 +327,7 @@ version. This is a simulated upstream change. It is not observed drift.
 
 ## Reproduce it
 
-`fixtures/` carries 44 KB of parquet and runs the whole project without the private source.
+`fixtures/` carries 31 KB of parquet and runs the whole project without the private source.
 This is the path CI runs and it reproduces the reconciliation numbers in this README exactly,
 including all six daily match rates and the 11, 6 and 1 reason-code counts. `fee_overrides` is
 reduced to 50 rows in the fixture, so the fee-schedule figures come from the full extract only.
@@ -345,7 +355,7 @@ uv pip install -r pyproject.toml --group lint
 DBT_PROFILES_DIR=. .venv/bin/sqlfluff lint models tests snapshots
 ```
 
-Checking that the tests themselves work takes about a minute and needs the fixture:
+Checking that the tests themselves work takes three to six minutes and needs the fixture:
 
 ```
 .venv/bin/python scripts/verify_controls.py
@@ -377,7 +387,7 @@ lowercase keywords, 100-column lines.
 `publish-docs` deploys that static file to GitHub Pages, on `main` only.
 
 CI runs against the committed fixture, not the full extract. The private sqlite is not available
-on a runner, so `fixtures/` carries 44 KB of parquet built by `scripts/build_fixture.py`.
+on a runner, so `fixtures/` carries 31 KB of parquet built by `scripts/build_fixture.py`.
 `fee_overrides` is reduced from 1659 rows to 50, 25 per `fee_type` ordered by `change_id`, which
 is enough to exercise the snapshot and the `accepted_values` test on `fee_type`.
 
