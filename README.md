@@ -212,8 +212,8 @@ tells them apart: for each control it copies the fixture, injects one violation 
 runs the models, then runs only that control and asserts it fails.
 
 15 of 15 injected faults are caught by the control that names them. It runs as its own CI job on
-every push, takes three to six minutes depending on the machine, and exits non-zero if any
-control sleeps through its fault.
+every push and exits non-zero if any control sleeps through its fault. A full pass takes a few
+minutes.
 
 | Control | Injected fault |
 |---|---|
@@ -239,7 +239,7 @@ exists because the first version of two mutations was wrong: `order by ... limit
 unparenthesized `union all` binds to the whole union in DuckDB, so instead of appending one row
 they truncated the table to one row. One of the two then passed for the wrong reason.
 
-A sixteenth control is inert, and the harness proves it rather than claiming it.
+A sixteenth control is inert, and the harness demonstrates it.
 `relationships_int_decision_settlement_ticker__ticker__ref_stg_settlements_` selects rows
 `where is_settled`, and `is_settled` is defined as "the settlement join matched", so every row
 it examines has a parent by construction. Deleting a settlement a decision points at does not
@@ -251,8 +251,8 @@ Some generic tests outside the harness are also true by construction. The `accep
 `match_rate` compares a subset count to `count(*)` over the same group, so the ratio cannot
 leave 0 to 1. The `unique` on `decision_date` is guaranteed by the `group by` that builds the
 daily fact. The `not_null` on `is_settled` reads a `ticker is not null` expression, which never
-returns null. All three are kept as contract documentation and none of them can catch a
-regression.
+returns null. All three are kept because they state the intended shape of the output, and none
+of them can be made to fail by any change to the data.
 
 ### Output contracts
 
@@ -355,7 +355,7 @@ uv pip install -r pyproject.toml --group lint
 DBT_PROFILES_DIR=. .venv/bin/sqlfluff lint models tests snapshots
 ```
 
-Checking that the tests themselves work takes three to six minutes and needs the fixture:
+Checking that the tests themselves work takes a few minutes and needs the fixture:
 
 ```
 .venv/bin/python scripts/verify_controls.py
