@@ -4,6 +4,20 @@ dbt models that join a trade decision ledger to the exchange settlement feed tha
 explain it, classify every decision the feed has not settled, and fail the build when the
 unexplained population grows past the size recorded here.
 
+## In plain English
+
+A trading system keeps its own record of every position it decided to take. The exchange keeps a
+separate record of which of those positions actually settled and for how much. The two records
+are written by different systems and drift apart, so a position the trading system thinks it
+holds can go unreported by the exchange, and the money goes missing quietly. This project
+reconciles the two. It takes 281 decisions from a six-day test of a trading rule on the Kalshi
+exchange and matches them against the 263 rows the exchange settlement feed produced. The 18
+that do not match are sorted into three groups: 6 the feed had not reached yet, 1 the exchange
+closed with no result to score, and 11 with no explanation anywhere in the data. The unusual
+part is what the project does with its own checks. A check that never fires looks exactly like a
+clean set of books, so the project breaks the data on purpose fifteen times, once per check, and
+confirms that each check catches its own fault.
+
 The input is a forward test of a Kalshi trading rule run between 2026-08-24 and 2026-08-29:
 281 decisions from 5 of the 12 collection runs in the run log, against a settlement feed
 carrying 263 rows. 263 of the 281 decisions settle, a match rate of 93.59%. The 18 that do not
